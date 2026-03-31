@@ -72,6 +72,34 @@ export function getRepoName(): string {
   }
 }
 
+export function environmentExists(envName: string): boolean {
+  try {
+    const repoName = getRepoName();
+    execFileSync(
+      "gh",
+      ["api", `repos/${repoName}/environments/${envName}`],
+      { stdio: "pipe" },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function createEnvironment(envName: string): boolean {
+  try {
+    const repoName = getRepoName();
+    execFileSync(
+      "gh",
+      ["api", "--method", "PUT", `repos/${repoName}/environments/${envName}`],
+      { stdio: "pipe" },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function listExisting(
   mode: PushMode,
   target: Target,

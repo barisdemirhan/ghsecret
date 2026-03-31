@@ -7,7 +7,13 @@ import type {
   PushResult,
   PrecedenceWarning,
 } from "../utils/gh.js";
-import { pushSingle, listExisting, checkPrecedence } from "../utils/gh.js";
+import {
+  pushSingle,
+  listExisting,
+  checkPrecedence,
+  environmentExists,
+  createEnvironment,
+} from "../utils/gh.js";
 import { Confirm } from "./Confirm.js";
 import { MixedPicker, type MixedChoice } from "./MixedPicker.js";
 
@@ -25,6 +31,7 @@ interface PushProps {
 
 type Phase =
   | "checking"
+  | "env-not-found"
   | "show-warnings"
   | "confirm"
   | "mixed-pick"
@@ -69,9 +76,15 @@ export function Push({
   >([]);
   const [mixedChoices, setMixedChoices] = useState<MixedChoice[]>([]);
 
-  // Step 1: Check existing + precedence
+  // Step 1: Check environment exists + existing + precedence
   useEffect(() => {
     if (phase !== "checking") return;
+
+    // Check if target environment exists
+    if (target === "env" && envName && !environmentExists(envName)) {
+      setPhase("env-not-found");
+      return;
+    }
 
     if (mode === "mixed") {
       setPhase("mixed-pick");
@@ -241,6 +254,27 @@ export function Push({
       {/* Checking */}
       {phase === "checking" && (
         <Text dimColor>⏳ Checking existing values on GitHub...</Text>
+      )}
+
+      {/* Environment not found */}
+      {phase === "env-not-found" && (
+        <Box flexDirection="column">
+          <Text color="yellow">
+            ⚠ Environment <Text bold>"{envName}"</Text> does not exist in this repository.
+          </Text>
+          <Confirm
+            message={`Create environment "${envName}" and continue?`}
+            onConfirm={() => {
+              const created = createEnvironment(envName!);
+              if (created) {
+                setPhase("checking");
+              } else {
+                exit(new Error(`Failed to create environment "${envName}"`));
+              }
+            }}
+            onCancel={() => exit(new Error("Aborted"))}
+          />
+        </Box>
       )}
 
       {/* Warnings: conflicts + precedence */}
