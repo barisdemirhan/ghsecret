@@ -27,5 +27,8 @@ jobs:
       - run: npm test
       - run: npm run build
 
+      - name: Clean non-English docs before publish
+        run: rm -f README.tr.md CONTRIBUTING*.md SECURITY*.md CODE_OF_CONDUCT.md CLAUDE.md
+
       - name: Publish to npm
         run: npm publish --provenance --access public --ignore-scripts
