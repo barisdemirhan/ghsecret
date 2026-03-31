@@ -3,11 +3,13 @@ import { Text, Box, useInput, useApp, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import { parseEnvFile, type EnvEntry } from "../utils/env-parser.js";
 import type { PushMode, Target } from "../utils/gh.js";
+import { listEnvironments } from "../utils/gh.js";
 
 type Step =
   | "select-file"
   | "select-target"
   | "input-org"
+  | "select-env"
   | "input-env"
   | "select-keys"
   | "select-mode"
@@ -43,6 +45,8 @@ export function Interactive({ defaultEnvFile, onComplete }: InteractiveProps) {
   const [target, setTarget] = useState<Target>("repo");
   const [orgName, setOrgName] = useState("");
   const [envName, setEnvName] = useState("");
+  const [envList, setEnvList] = useState<string[]>([]);
+  const [envCursor, setEnvCursor] = useState(0);
 
   const [cursor, setCursor] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -74,8 +78,26 @@ export function Interactive({ defaultEnvFile, onComplete }: InteractiveProps) {
         const chosen = targets[targetCursor]!.value;
         setTarget(chosen);
         if (chosen === "org") setStep("input-org");
-        else if (chosen === "env") setStep("input-env");
+        else if (chosen === "env") {
+          const envs = listEnvironments();
+          setEnvList(envs);
+          setEnvCursor(0);
+          setStep(envs.length > 0 ? "select-env" : "input-env");
+        }
         else setStep("select-keys");
+      }
+    } else if (step === "select-env") {
+      // envList items + last item is "＋ Create new"
+      const totalOptions = envList.length + 1;
+      if (key.upArrow) setEnvCursor((c) => Math.max(0, c - 1));
+      else if (key.downArrow) setEnvCursor((c) => Math.min(totalOptions - 1, c + 1));
+      else if (key.return) {
+        if (envCursor < envList.length) {
+          setEnvName(envList[envCursor]!);
+          setStep("select-keys");
+        } else {
+          setStep("input-env");
+        }
       }
     } else if (step === "select-keys") {
       if (key.upArrow) setCursor((c) => Math.max(0, c - 1));
@@ -194,7 +216,27 @@ export function Interactive({ defaultEnvFile, onComplete }: InteractiveProps) {
         </>
       )}
 
-      {/* Step 2c: Env name input */}
+      {/* Step 2b2: Select existing environment */}
+      {step === "select-env" && (
+        <>
+          <Text bold>🌍 Select environment:</Text>
+          {envList.map((env, i) => (
+            <Text key={env}>
+              {envCursor === i ? " ❯ " : "   "}
+              {env}
+            </Text>
+          ))}
+          <Text>
+            {envCursor === envList.length ? " ❯ " : "   "}
+            <Text color="green">＋ Create new environment</Text>
+          </Text>
+          <Box marginTop={1}>
+            <Text dimColor>↑↓ navigate · enter confirm · q quit</Text>
+          </Box>
+        </>
+      )}
+
+      {/* Step 2c: Env name input (new environment) */}
       {step === "input-env" && (
         <>
           <Text bold>🌍 Environment name:</Text>

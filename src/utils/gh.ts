@@ -100,6 +100,20 @@ export function createEnvironment(envName: string): boolean {
   }
 }
 
+export function listEnvironments(): string[] {
+  try {
+    const repoName = getRepoName();
+    const raw = execFileSync(
+      "gh",
+      ["api", `repos/${repoName}/environments`, "--jq", ".environments[].name"],
+      { stdio: "pipe", encoding: "utf-8" },
+    );
+    return raw.trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export function listExisting(
   mode: PushMode,
   target: Target,
