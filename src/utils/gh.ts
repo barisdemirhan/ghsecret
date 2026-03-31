@@ -245,17 +245,19 @@ export function pushSingle(options: PushOptions): PushResult {
     };
   }
 
-  // "--" prevents key from being interpreted as a flag (arg injection defense)
+  // Flags must come before "--" sentinel; key comes after "--" (arg injection defense)
   const args: string[] =
     mode === "secret"
-      ? ["secret", "set", "--", key]
-      : ["variable", "set", "--", key];
+      ? ["secret", "set"]
+      : ["variable", "set"];
 
   if (target === "org" && orgName) {
     args.push("--org", orgName);
   } else if (target === "env" && envName) {
     args.push("--env", envName);
   }
+
+  args.push("--", key);
 
   try {
     // Value passed via stdin — never as a CLI argument (prevents ps aux leakage)
