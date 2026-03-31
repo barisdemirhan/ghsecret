@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+*.swp
+*.swo
+*~
+node_modules/
+dist/
+.claude/
