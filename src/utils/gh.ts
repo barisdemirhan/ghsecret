@@ -1,4 +1,4 @@
-import { execSync, execFileSync } from "node:child_process";
+import { execSync, execFileSync, execFile } from "node:child_process";
 
 export type PushMode = "secret" | "variable";
 export type Target = "repo" | "org" | "env";
@@ -13,6 +13,7 @@ export interface PushOptions {
   target: Target;
   orgName?: string;
   envName?: string;
+  repoName?: string;
 }
 
 export interface PushResult {
@@ -31,6 +32,10 @@ export interface ExistingEntry {
 
 export function isValidKey(key: string): boolean {
   return VALID_KEY_REGEX.test(key);
+}
+
+export function validateKeys(keys: string[]): string[] {
+  return keys.filter((k) => !isValidKey(k));
 }
 
 export function checkDeps(): { ok: boolean; error?: string } {
@@ -72,9 +77,8 @@ export function getRepoName(): string {
   }
 }
 
-export function environmentExists(envName: string): boolean {
+export function environmentExists(envName: string, repoName: string): boolean {
   try {
-    const repoName = getRepoName();
     execFileSync(
       "gh",
       ["api", `repos/${repoName}/environments/${envName}`],
@@ -86,9 +90,8 @@ export function environmentExists(envName: string): boolean {
   }
 }
 
-export function createEnvironment(envName: string): boolean {
+export function createEnvironment(envName: string, repoName: string): boolean {
   try {
-    const repoName = getRepoName();
     execFileSync(
       "gh",
       ["api", "--method", "PUT", `repos/${repoName}/environments/${envName}`],
@@ -100,9 +103,51 @@ export function createEnvironment(envName: string): boolean {
   }
 }
 
-export function listEnvironments(): string[] {
+export interface RemoteInfo {
+  name: string;
+  owner: string;
+  repo: string;
+}
+
+export function listRemotes(): RemoteInfo[] {
   try {
-    const repoName = getRepoName();
+    const raw = execSync("git remote -v", { stdio: "pipe", encoding: "utf-8" });
+    const seen = new Set<string>();
+    const remotes: RemoteInfo[] = [];
+
+    for (const line of raw.split("\n")) {
+      if (!line.trim()) continue;
+      const parts = line.split(/\s+/);
+      const name = parts[0] ?? "";
+      const url = parts[1] ?? "";
+
+      if (seen.has(name)) continue;
+      seen.add(name);
+
+      // Parse SSH: git@github.com:owner/repo.git
+      // Parse HTTPS: https://github.com/owner/repo.git
+      const match = url.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+      if (!match) continue;
+
+      remotes.push({
+        name,
+        owner: match[1]!,
+        repo: match[2]!,
+      });
+    }
+
+    return remotes;
+  } catch {
+    return [];
+  }
+}
+
+export function getRepoNameFromRemote(remote: RemoteInfo): string {
+  return `${remote.owner}/${remote.repo}`;
+}
+
+export function listEnvironments(repoName: string): string[] {
+  try {
     const raw = execFileSync(
       "gh",
       ["api", `repos/${repoName}/environments`, "--jq", ".environments[].name"],
@@ -119,8 +164,13 @@ export function listExisting(
   target: Target,
   orgName?: string,
   envName?: string,
+  repoName?: string,
 ): ExistingEntry[] {
   const args: string[] = [mode, "list", "--json", "name,updatedAt"];
+
+  if (repoName) {
+    args.push("-R", repoName);
+  }
 
   if (target === "org" && orgName) {
     args.push("--org", orgName);
@@ -189,24 +239,24 @@ export function checkPrecedence(
   if (pushTarget === "org") {
     levelsToScan.push({
       level: "repo",
-      list: () => listExisting(mode, "repo"),
+      list: () => listExisting(mode, "repo", undefined, undefined, repoName),
     });
   } else if (pushTarget === "repo") {
     if (owner) {
       levelsToScan.push({
         level: "org",
-        list: () => listExisting(mode, "org", owner),
+        list: () => listExisting(mode, "org", owner, undefined, repoName),
       });
     }
   } else if (pushTarget === "env") {
     levelsToScan.push({
       level: "repo",
-      list: () => listExisting(mode, "repo"),
+      list: () => listExisting(mode, "repo", undefined, undefined, repoName),
     });
     if (owner) {
       levelsToScan.push({
         level: "org",
-        list: () => listExisting(mode, "org", owner),
+        list: () => listExisting(mode, "org", owner, undefined, repoName),
       });
     }
   }
@@ -299,6 +349,10 @@ export function pushSingle(options: PushOptions): PushResult {
     args.push("--env", envName);
   }
 
+  if (options.repoName) {
+    args.push("-R", options.repoName);
+  }
+
   args.push("--", key);
 
   try {
@@ -323,4 +377,58 @@ export function pushSingle(options: PushOptions): PushResult {
       error: parseGhError(stderr),
     };
   }
+}
+
+export async function pushSingleAsync(options: PushOptions): Promise<PushResult> {
+  const { key, value, mode, target, orgName, envName } = options;
+
+  if (!isValidKey(key)) {
+    return {
+      key,
+      mode,
+      success: false,
+      existed: false,
+      skipped: false,
+      error: `Invalid key name "${key}". Keys must match [A-Za-z_][A-Za-z0-9_]*`,
+    };
+  }
+
+  const args: string[] =
+    mode === "secret"
+      ? ["secret", "set"]
+      : ["variable", "set"];
+
+  if (target === "org" && orgName) {
+    args.push("--org", orgName);
+  } else if (target === "env" && envName) {
+    args.push("--env", envName);
+  }
+
+  if (options.repoName) {
+    args.push("-R", options.repoName);
+  }
+
+  args.push("--", key);
+
+  return new Promise<PushResult>((resolve) => {
+    const child = execFile("gh", args, (err, _stdout, stderr) => {
+      if (err) {
+        const stderrStr = typeof stderr === "string" ? stderr : "";
+        resolve({
+          key,
+          mode,
+          success: false,
+          existed: false,
+          skipped: false,
+          error: parseGhError(stderrStr),
+        });
+        return;
+      }
+      resolve({ key, mode, success: true, existed: false, skipped: false });
+    });
+    if (child.stdin) {
+      child.stdin.write(value);
+      child.stdin.end();
+    }
+  });
 }

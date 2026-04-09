@@ -26,12 +26,13 @@ export interface InteractiveResult {
 
 interface InteractiveProps {
   defaultEnvFile: string;
+  repoName: string;
   onComplete: (result: InteractiveResult) => void;
 }
 
 const VIEWPORT_PADDING = 6; // header + footer lines reserved
 
-export function Interactive({ defaultEnvFile, onComplete }: InteractiveProps) {
+export function Interactive({ defaultEnvFile, repoName, onComplete }: InteractiveProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const terminalRows = stdout?.rows ?? 24;
@@ -79,7 +80,7 @@ export function Interactive({ defaultEnvFile, onComplete }: InteractiveProps) {
         setTarget(chosen);
         if (chosen === "org") setStep("input-org");
         else if (chosen === "env") {
-          const envs = listEnvironments();
+          const envs = listEnvironments(repoName);
           setEnvList(envs);
           setEnvCursor(0);
           setStep(envs.length > 0 ? "select-env" : "input-env");

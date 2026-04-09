@@ -40,13 +40,15 @@ src/
 │   ├── Help.tsx         # Help text output
 │   ├── Interactive.tsx  # Interactive mode (file, target, keys, mode)
 │   ├── MixedPicker.tsx  # Per-key secret/variable/skip chooser
-│   └── Push.tsx         # Push execution with conflict/precedence checks
+│   ├── Push.tsx         # Push execution with conflict/precedence checks
+│   └── RemotePicker.tsx # Multi-remote repository selector
 ├── utils/
 │   ├── env-parser.ts    # .env file parser
 │   ├── gh.ts            # GitHub CLI wrapper functions
 │   └── types.ts         # Shared types and defaults
 └── __tests__/
-    └── env-parser.test.ts
+    ├── env-parser.test.ts
+    └── gh.test.ts
 ```
 
 ## Guidelines

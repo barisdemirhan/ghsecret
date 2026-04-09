@@ -147,6 +147,50 @@ describe("inline comments", () => {
   });
 });
 
+describe("malformed input", () => {
+  const malformedDir = join(tmpdir(), "ghsecret-malformed-" + Date.now());
+  const malformedPath = join(malformedDir, ".env.malformed");
+
+  const malformedContent = `GOOD_KEY=good_value
+UNCLOSED="this quote never closes
+LINE2=still inside the broken quote
+LINE3=also inside
+AFTER_KEY=should_be_parsed
+`;
+
+  beforeAll(() => {
+    mkdirSync(malformedDir, { recursive: true });
+    writeFileSync(malformedPath, malformedContent);
+  });
+
+  afterAll(() => {
+    try { unlinkSync(malformedPath); } catch {}
+  });
+
+  it("handles unclosed quote by consuming to EOF and continuing", () => {
+    const entries = parseEnvFile(malformedPath);
+    expect(entries.find((e) => e.key === "GOOD_KEY")?.value).toBe("good_value");
+    expect(entries.find((e) => e.key === "UNCLOSED")).toBeDefined();
+  });
+
+  it("limits multiline scan to prevent runaway parsing", () => {
+    const bigMalformed = join(malformedDir, ".env.bigmalformed");
+    let content = 'BEFORE=ok\nRUNAWAY="start\n';
+    for (let i = 0; i < 200; i++) {
+      content += `LINE_${i}=value_${i}\n`;
+    }
+    content += 'AFTER=should_exist\n';
+    writeFileSync(bigMalformed, content);
+
+    const entries = parseEnvFile(bigMalformed);
+    expect(entries.find((e) => e.key === "BEFORE")?.value).toBe("ok");
+    // With the 100-line limit, AFTER at line 203 should be found
+    expect(entries.find((e) => e.key === "AFTER")).toBeDefined();
+
+    try { unlinkSync(bigMalformed); } catch {}
+  });
+});
+
 describe("getKeys", () => {
   it("lists all keys", () => {
     const keys = getKeys(testEnvPath);

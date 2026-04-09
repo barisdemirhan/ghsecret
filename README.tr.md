@@ -43,6 +43,9 @@ npx ghsecret -s -k API_KEY --env staging
 
 # Organization'a aktar
 npx ghsecret -v -k SLACK_WEBHOOK --org my-org
+
+# Belirli bir repo'ya aktar (remote seçimini atla)
+npx ghsecret -s -a --repo my-org/my-repo
 ```
 
 ## Kurulum
@@ -85,6 +88,7 @@ ghsecret push <key1> <key2> ... -s     Belirli key'leri aktar
 | `--env <isim>` | Environment seviyesine aktar |
 | `--dry-run` | Aktarmadan önizle |
 | `--force` | Onay istemlerini atla |
+| `--repo <owner/repo>` | Belirli bir repository'yi hedefle (remote seçimini atlar) |
 
 ## Örnekler
 
@@ -106,6 +110,9 @@ ghsecret -v -k SLACK_WEBHOOK --org my-org
 
 # CI/CD — onay yok
 ghsecret -s -a --force
+
+# Belirli bir repo'yu hedefle (birden fazla remote varsa kullanışlı)
+ghsecret -s -a --repo my-org/my-repo
 ```
 
 ## İnteraktif Mod
@@ -138,6 +145,33 @@ Push as:
    🔀 Mixed (key başına seç)
 ```
 
+## Remote Seçimi
+
+Birden fazla git remote tespit edildiğinde ghsecret hangi repo'ya aktarılacağını sorar:
+
+```
+🔗 Birden fazla remote bulundu. Hangi repo'ya aktarılsın?
+ ❯ origin   → barisdemirhan/ghsecret
+   upstream → someorg/ghsecret
+```
+
+Seçimi atlamak için `--repo` kullanın:
+
+```bash
+ghsecret -s -a --repo someorg/ghsecret
+```
+
+## Push İlerlemesi
+
+Her key tek tek aktarılır ve anlık geri bildirim verilir:
+
+```
+ ✓ APP_NAME → 🔒 secret
+ ✓ DB_HOST → 📋 variable
+ ✗ BAD_KEY — Permission denied
+⠋ Aktarılıyor 4/15... API_KEY → 🔒 secret
+```
+
 ## Güvenlik Özellikleri
 
 ### Çakışma Tespiti
@@ -168,6 +202,15 @@ Veya aktarımınız daha düşük öncelikli bir seviyeyi geçersiz kıldığın
 ```
 ℹ 1 key daha düşük öncelikli değerleri geçersiz kılacak:
   • DB_PASSWORD — Organization seviyesindeki değeri geçersiz kılacak
+```
+
+### Otomatik Environment Oluşturma
+
+Henüz mevcut olmayan bir environment'a aktarım yaparken ghsecret oluşturmayı teklif eder:
+
+```
+⚠ Environment "staging" bu repository'de mevcut değil.
+"staging" environment'ı oluşturulup devam edilsin mi? [y/N]
 ```
 
 ### Hata Yönetimi

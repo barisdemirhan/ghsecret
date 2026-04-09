@@ -11,6 +11,7 @@ export interface AppConfig {
   dryRun: boolean;
   interactive: boolean;
   force: boolean;
+  repo: string;
 }
 
 export const defaultConfig: AppConfig = {
@@ -24,4 +25,5 @@ export const defaultConfig: AppConfig = {
   dryRun: false,
   interactive: false,
   force: false,
+  repo: "",
 };

@@ -40,13 +40,15 @@ src/
 │   ├── Help.tsx         # Yardım metni çıktısı
 │   ├── Interactive.tsx  # İnteraktif mod (dosya, hedef, key, mod)
 │   ├── MixedPicker.tsx  # Key başına secret/variable/atla seçici
-│   └── Push.tsx         # Push işlemleri, çakışma/öncelik kontrolleri
+│   ├── Push.tsx         # Push işlemleri, çakışma/öncelik kontrolleri
+│   └── RemotePicker.tsx # Birden fazla remote için repo seçici
 ├── utils/
 │   ├── env-parser.ts    # .env dosya ayrıştırıcı
 │   ├── gh.ts            # GitHub CLI sarmalayıcı fonksiyonlar
 │   └── types.ts         # Paylaşılan tipler ve varsayılanlar
 └── __tests__/
-    └── env-parser.test.ts
+    ├── env-parser.test.ts
+    └── gh.test.ts
 ```
 
 ## Kurallar

@@ -41,9 +41,12 @@ export function parseEnvFile(filePath: string): EnvEntry[] {
     ) {
       const quote = value[0]!;
       const parts = [value.slice(1)];
-      while (i < lines.length) {
+      const maxScan = 100;
+      let scanned = 0;
+      while (i < lines.length && scanned < maxScan) {
         const nextLine = lines[i]!;
         i++;
+        scanned++;
         if (nextLine.trimEnd().endsWith(quote)) {
           parts.push(nextLine.trimEnd().slice(0, -1));
           break;

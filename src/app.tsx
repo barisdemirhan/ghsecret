@@ -3,38 +3,63 @@ import { useApp } from "ink";
 import type { AppConfig } from "./utils/types.js";
 import type { PushMode } from "./utils/gh.js";
 import { parseEnvFile, type EnvEntry } from "./utils/env-parser.js";
-import { checkDeps, getRepoName } from "./utils/gh.js";
+import {
+  checkDeps,
+  listRemotes,
+  getRepoNameFromRemote,
+} from "./utils/gh.js";
 import { Interactive, type InteractiveResult } from "./components/Interactive.js";
 import { Push } from "./components/Push.js";
 import { ErrorMessage } from "./components/ErrorMessage.js";
+import { RemotePicker } from "./components/RemotePicker.js";
 
 interface AppProps {
   config: AppConfig;
 }
 
-type Phase = "interactive" | "push";
+type Phase = "select-repo" | "interactive" | "push";
 
 export function App({ config }: AppProps) {
-  const [phase, setPhase] = useState<Phase>(() =>
-    config.interactive ? "interactive" : "push",
-  );
+  const deps = checkDeps();
+  const remotes = deps.ok ? listRemotes() : [];
+
+  // Compute initial state unconditionally (hooks must come before any returns)
+  let initialRepoName = "";
+  let initialPhase: Phase = "select-repo";
+  let needsRemotePick = false;
+  let initError = "";
+
+  if (!deps.ok) {
+    initError = deps.error!;
+  } else if (config.repo) {
+    initialRepoName = config.repo;
+    initialPhase = config.interactive ? "interactive" : "push";
+  } else if (remotes.length === 0) {
+    initError = "No git remotes found. Run from a GitHub repository directory.";
+  } else if (remotes.length === 1) {
+    initialRepoName = getRepoNameFromRemote(remotes[0]!);
+    initialPhase = config.interactive ? "interactive" : "push";
+  } else {
+    needsRemotePick = true;
+  }
+
+  const [phase, setPhase] = useState<Phase>(initialPhase);
+  const [repoName, setRepoName] = useState(initialRepoName);
   const [interactiveResult, setInteractiveResult] =
     useState<InteractiveResult | null>(null);
 
-  const deps = checkDeps();
-  if (!deps.ok) {
-    return <ErrorMessage message={deps.error!} />;
+  if (initError) {
+    return <ErrorMessage message={initError} />;
   }
 
-  let repoName: string;
-  try {
-    repoName = getRepoName();
-  } catch (err) {
+  if (phase === "select-repo" && needsRemotePick) {
     return (
-      <ErrorMessage
-        message={
-          err instanceof Error ? err.message : "Failed to get repo name"
-        }
+      <RemotePicker
+        remotes={remotes}
+        onSelect={(remote) => {
+          setRepoName(getRepoNameFromRemote(remote));
+          setPhase(config.interactive ? "interactive" : "push");
+        }}
       />
     );
   }
@@ -43,6 +68,7 @@ export function App({ config }: AppProps) {
     return (
       <Interactive
         defaultEnvFile={config.envFile}
+        repoName={repoName}
         onComplete={(result) => {
           setInteractiveResult(result);
           setPhase("push");

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Text, Box, useApp } from "ink";
+import Spinner from "ink-spinner";
 import type { EnvEntry } from "../utils/env-parser.js";
 import type {
   PushMode,
@@ -8,7 +9,7 @@ import type {
   PrecedenceWarning,
 } from "../utils/gh.js";
 import {
-  pushSingle,
+  pushSingleAsync,
   listExisting,
   checkPrecedence,
   environmentExists,
@@ -75,13 +76,17 @@ export function Push({
     }[]
   >([]);
   const [mixedChoices, setMixedChoices] = useState<MixedChoice[]>([]);
+  const [pushingIndex, setPushingIndex] = useState(-1);
+  const [entriesToPush, setEntriesToPush] = useState<
+    { key: string; value: string; pushMode: PushMode }[]
+  >([]);
 
   // Step 1: Check environment exists + existing + precedence
   useEffect(() => {
     if (phase !== "checking") return;
 
     // Check if target environment exists
-    if (target === "env" && envName && !environmentExists(envName)) {
+    if (target === "env" && envName && !environmentExists(envName, repoName)) {
       setPhase("env-not-found");
       return;
     }
@@ -92,7 +97,7 @@ export function Push({
     }
 
     // Check same-level conflicts
-    const existing = listExisting(mode, target, orgName, envName);
+    const existing = listExisting(mode, target, orgName, envName, repoName);
     const existingNames = new Set(existing.map((e) => e.name));
     const found: ConflictEntry[] = [];
     for (const key of keys) {
@@ -131,13 +136,12 @@ export function Push({
   useEffect(() => {
     if (phase !== "pushing") return;
 
-    const entriesToPush: { key: string; value: string; pushMode: PushMode }[] =
-      [];
+    const localEntries: { key: string; value: string; pushMode: PushMode }[] = [];
 
     if (mode === "mixed") {
       for (const choice of mixedChoices) {
         if (choice.mode !== "skip") {
-          entriesToPush.push({
+          localEntries.push({
             key: choice.key,
             value: choice.value,
             pushMode: choice.mode,
@@ -146,7 +150,7 @@ export function Push({
       }
     } else {
       for (const entry of selectedEntries) {
-        entriesToPush.push({
+        localEntries.push({
           key: entry.key,
           value: entry.value,
           pushMode: mode,
@@ -154,29 +158,41 @@ export function Push({
       }
     }
 
+    setEntriesToPush(localEntries);
+
     if (dryRun) {
-      // For dry-run, also fetch precedence info per key
-      const allPWarnings =
-        mode !== "mixed"
-          ? precedenceWarnings
-          : checkPrecedence(
-              entriesToPush.map((e) => e.key),
-              entriesToPush[0]?.pushMode ?? "secret",
-              target,
-              repoName,
-              orgName,
-              envName,
-            );
+      // For dry-run, fetch precedence per mode used in mixed
+      let allPWarnings: PrecedenceWarning[];
+      if (mode !== "mixed") {
+        allPWarnings = precedenceWarnings;
+      } else {
+        const modeGroups = new Map<PushMode, string[]>();
+        for (const e of localEntries) {
+          const group = modeGroups.get(e.pushMode) ?? [];
+          group.push(e.key);
+          modeGroups.set(e.pushMode, group);
+        }
+        allPWarnings = [];
+        for (const [pushMode, groupKeys] of modeGroups) {
+          allPWarnings.push(
+            ...checkPrecedence(groupKeys, pushMode, target, repoName, orgName, envName),
+          );
+        }
+      }
 
-      const existingSame = listExisting(
-        mode !== "mixed" ? mode : "secret",
-        target,
-        orgName,
-        envName,
-      );
-      const existingSet = new Set(existingSame.map((e) => e.name));
+      const existingSet = new Set<string>();
+      if (mode !== "mixed") {
+        const existingSame = listExisting(mode, target, orgName, envName, repoName);
+        for (const e of existingSame) existingSet.add(e.name);
+      } else {
+        const modes = new Set(localEntries.map((e) => e.pushMode));
+        for (const m of modes) {
+          const existing = listExisting(m, target, orgName, envName, repoName);
+          for (const e of existing) existingSet.add(e.name);
+        }
+      }
 
-      const lines = entriesToPush.map((e) => {
+      const lines = localEntries.map((e) => {
         let maskedValue: string;
         if (e.pushMode === "secret") {
           maskedValue = "********";
@@ -198,28 +214,36 @@ export function Push({
       return;
     }
 
-    const pushResults: PushResult[] = [];
-    for (const entry of entriesToPush) {
-      const existed = conflicts.some((c) => c.key === entry.key);
-      const result = pushSingle({
-        key: entry.key,
-        value: entry.value,
-        mode: entry.pushMode,
-        target,
-        orgName,
-        envName,
-      });
-      result.existed = existed;
-      pushResults.push(result);
-    }
+    // Async push with progress
+    async function run() {
+      const pushResults: PushResult[] = [];
+      for (let idx = 0; idx < localEntries.length; idx++) {
+        setPushingIndex(idx);
+        const entry = localEntries[idx]!;
+        const existed = conflicts.some((c) => c.key === entry.key);
+        const result = await pushSingleAsync({
+          key: entry.key,
+          value: entry.value,
+          mode: entry.pushMode,
+          target,
+          orgName,
+          envName,
+          repoName,
+        });
+        result.existed = existed;
+        pushResults.push(result);
+        setResults([...pushResults]);
+      }
 
-    setResults(pushResults);
-    setPhase("done");
+      setPushingIndex(-1);
+      setPhase("done");
 
-    const failed = pushResults.filter((r) => !r.success).length;
-    if (failed > 0) {
-      setTimeout(() => exit(new Error(`${failed} key(s) failed to push`)), 0);
+      const failed = pushResults.filter((r) => !r.success).length;
+      if (failed > 0) {
+        setTimeout(() => exit(new Error(`${failed} key(s) failed to push`)), 0);
+      }
     }
+    run();
   }, [phase]);
 
   const targetLabel =
@@ -265,7 +289,7 @@ export function Push({
           <Confirm
             message={`Create environment "${envName}" and continue?`}
             onConfirm={() => {
-              const created = createEnvironment(envName!);
+              const created = createEnvironment(envName!, repoName);
               if (created) {
                 setPhase("checking");
               } else {
@@ -377,6 +401,39 @@ export function Push({
             setPhase("pushing");
           }}
         />
+      )}
+
+      {/* Push progress — completed results + active spinner */}
+      {phase === "pushing" && (
+        <Box flexDirection="column">
+          {results.map((r) => (
+            <Text key={r.key}>
+              {r.success ? (
+                <>
+                  <Text color="green"> ✓ </Text>
+                  {r.key} →{" "}
+                  {r.mode === "secret" ? "🔒 secret" : "📋 variable"}
+                  {r.existed && <Text color="yellow"> (overwritten)</Text>}
+                </>
+              ) : (
+                <>
+                  <Text color="red"> ✗ </Text>
+                  {r.key}
+                  <Text color="red"> — {r.error}</Text>
+                </>
+              )}
+            </Text>
+          ))}
+          {pushingIndex >= 0 && pushingIndex < entriesToPush.length && (
+            <Text>
+              {"  "}
+              <Spinner type="dots" />
+              {" "}Pushing {pushingIndex + 1}/{entriesToPush.length}...{" "}
+              {entriesToPush[pushingIndex]!.key} →{" "}
+              {entriesToPush[pushingIndex]!.pushMode === "secret" ? "🔒" : "📋"}
+            </Text>
+          )}
+        </Box>
       )}
 
       {/* Dry run results */}

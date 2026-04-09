@@ -43,6 +43,9 @@ npx ghsecret -s -k API_KEY --env staging
 
 # Push to organization
 npx ghsecret -v -k SLACK_WEBHOOK --org my-org
+
+# Push to a specific repo (skip remote selection)
+npx ghsecret -s -a --repo my-org/my-repo
 ```
 
 ## Install
@@ -85,6 +88,7 @@ ghsecret push <key1> <key2> ... -s    Push specific keys
 | `--env <name>` | Push to environment level |
 | `--dry-run` | Preview without pushing |
 | `--force` | Skip confirmation prompts |
+| `--repo <owner/repo>` | Target specific repository (skips remote selection) |
 
 ## Examples
 
@@ -106,6 +110,9 @@ ghsecret -v -k SLACK_WEBHOOK --org my-org
 
 # CI/CD — no prompts
 ghsecret -s -a --force
+
+# Target a specific repo (useful with multiple remotes)
+ghsecret -s -a --repo my-org/my-repo
 ```
 
 ## Interactive Mode
@@ -138,6 +145,33 @@ Push as:
    🔀 Mixed (choose per key)
 ```
 
+## Remote Selection
+
+When multiple git remotes are detected, ghsecret asks which repo to target:
+
+```
+🔗 Multiple remotes found. Push to which repo?
+ ❯ origin   → barisdemirhan/ghsecret
+   upstream → someorg/ghsecret
+```
+
+To skip the prompt, use `--repo`:
+
+```bash
+ghsecret -s -a --repo someorg/ghsecret
+```
+
+## Push Progress
+
+Each key is pushed one at a time with real-time feedback:
+
+```
+ ✓ APP_NAME → 🔒 secret
+ ✓ DB_HOST → 📋 variable
+ ✗ BAD_KEY — Permission denied
+⠋ Pushing 4/15... API_KEY → 🔒 secret
+```
+
 ## Safety Features
 
 ### Conflict Detection
@@ -168,6 +202,15 @@ Or when your push overrides a lower-priority level:
 ```
 ℹ 1 key(s) will override lower-priority values:
   • DB_PASSWORD — Will override the Organization-level value
+```
+
+### Environment Auto-Create
+
+When pushing to an environment that doesn't exist yet, ghsecret offers to create it:
+
+```
+⚠ Environment "staging" does not exist in this repository.
+Create environment "staging" and continue? [y/N]
 ```
 
 ### Error Handling

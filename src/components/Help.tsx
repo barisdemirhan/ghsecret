@@ -26,6 +26,7 @@ ${b("OPTIONS")}
     --env <name>          Push to environment level
     --dry-run             Preview without pushing
     --force               Skip confirmation prompts
+    --repo <o/r>          Target specific repository
     -h, --help            Show this help
     --version             Show version
 
@@ -47,5 +48,8 @@ ${b("EXAMPLES")}
 
     ${d("# Push to organization")}
     ghsecret -s -k DB_PASSWORD --org my-org
+
+    ${d("# Push to a specific repo")}
+    ghsecret -s -a --repo my-org/my-repo
 `);
 }

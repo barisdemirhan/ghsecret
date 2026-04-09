@@ -30,6 +30,7 @@ const cli = meow(
     --env              Push to environment level
     --dry-run          Preview without pushing
     --force            Skip confirmation prompts
+    --repo <owner/repo>  Target specific repository
     --version          Show version
 `,
   {
@@ -47,6 +48,7 @@ const cli = meow(
       env: { type: "string" },
       dryRun: { type: "boolean", default: false },
       force: { type: "boolean", default: false },
+      repo: { type: "string" },
       help: { type: "boolean", shortFlag: "h", default: false },
       version: { type: "boolean", default: false },
     },
@@ -102,6 +104,7 @@ const config: AppConfig = {
   dryRun: cli.flags.dryRun,
   interactive: cli.flags.interactive,
   force: cli.flags.force,
+  repo: cli.flags.repo ?? "",
 };
 
 const instance = render(<App config={config} />);
