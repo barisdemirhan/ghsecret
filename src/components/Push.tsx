@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Text, Box, useApp } from "ink";
+import { Text, Box, useApp, useInput } from "ink";
 import Spinner from "ink-spinner";
 import type { EnvEntry } from "../utils/env-parser.js";
 import type {
@@ -34,6 +34,7 @@ type Phase =
   | "checking"
   | "env-not-found"
   | "show-warnings"
+  | "pick-overwrites"
   | "confirm"
   | "mixed-pick"
   | "pushing"
@@ -80,6 +81,52 @@ export function Push({
   const [entriesToPush, setEntriesToPush] = useState<
     { key: string; value: string; pushMode: PushMode }[]
   >([]);
+  const [skippedKeys, setSkippedKeys] = useState<Set<string>>(new Set());
+  const [owCursor, setOwCursor] = useState(0);
+  const [owSelected, setOwSelected] = useState<Set<number>>(new Set());
+
+  // Handle keyboard input for show-warnings and pick-overwrites phases
+  useInput((input, key) => {
+    if (phase === "show-warnings" && conflicts.length > 0) {
+      if (input === "a" || input === "A") {
+        // Overwrite all — proceed to push
+        setPhase("pushing");
+      } else if (input === "s" || input === "S") {
+        // Select which to overwrite
+        setOwCursor(0);
+        setOwSelected(new Set(conflicts.map((_, i) => i))); // all selected by default
+        setPhase("pick-overwrites");
+      } else if (input === "n" || input === "N" || input === "q") {
+        exit(new Error("Aborted"));
+      }
+    } else if (phase === "pick-overwrites") {
+      if (key.upArrow) {
+        setOwCursor((c) => Math.max(0, c - 1));
+      } else if (key.downArrow) {
+        setOwCursor((c) => Math.min(conflicts.length - 1, c + 1));
+      } else if (input === " ") {
+        setOwSelected((prev) => {
+          const next = new Set(prev);
+          if (next.has(owCursor)) next.delete(owCursor);
+          else next.add(owCursor);
+          return next;
+        });
+      } else if (input === "a") {
+        if (owSelected.size === conflicts.length) setOwSelected(new Set());
+        else setOwSelected(new Set(conflicts.map((_, i) => i)));
+      } else if (key.return) {
+        // Keys NOT selected for overwrite get skipped
+        const toSkip = new Set<string>();
+        conflicts.forEach((c, i) => {
+          if (!owSelected.has(i)) toSkip.add(c.key);
+        });
+        setSkippedKeys(toSkip);
+        setPhase("pushing");
+      } else if (input === "q") {
+        exit(new Error("Aborted"));
+      }
+    }
+  });
 
   // Step 1: Check environment exists + existing + precedence
   useEffect(() => {
@@ -91,32 +138,67 @@ export function Push({
       return;
     }
 
-    if (mode === "mixed") {
+    // In mixed mode, go to mixed-pick first (user chooses per-key mode),
+    // then come back to checking for conflict detection
+    if (mode === "mixed" && mixedChoices.length === 0) {
       setPhase("mixed-pick");
       return;
     }
 
-    // Check same-level conflicts
-    const existing = listExisting(mode, target, orgName, envName, repoName);
-    const existingNames = new Set(existing.map((e) => e.name));
+    // Determine which keys and modes to check
+    // In mixed mode (after pick), check each mode's keys separately
     const found: ConflictEntry[] = [];
-    for (const key of keys) {
-      if (existingNames.has(key)) {
-        const match = existing.find((e) => e.name === key);
-        found.push({ key, mode, updatedAt: match?.updatedAt });
+    if (mode === "mixed") {
+      const activePicks = mixedChoices.filter((c) => c.mode !== "skip");
+      const modeGroups = new Map<PushMode, string[]>();
+      for (const c of activePicks) {
+        const group = modeGroups.get(c.mode as PushMode) ?? [];
+        group.push(c.key);
+        modeGroups.set(c.mode as PushMode, group);
+      }
+      for (const [pushMode, groupKeys] of modeGroups) {
+        const existing = listExisting(pushMode, target, orgName, envName, repoName);
+        const existingNames = new Set(existing.map((e) => e.name));
+        for (const key of groupKeys) {
+          if (existingNames.has(key)) {
+            const match = existing.find((e) => e.name === key);
+            found.push({ key, mode: pushMode, updatedAt: match?.updatedAt });
+          }
+        }
+      }
+    } else {
+      const existing = listExisting(mode, target, orgName, envName, repoName);
+      const existingNames = new Set(existing.map((e) => e.name));
+      for (const key of keys) {
+        if (existingNames.has(key)) {
+          const match = existing.find((e) => e.name === key);
+          found.push({ key, mode, updatedAt: match?.updatedAt });
+        }
       }
     }
     setConflicts(found);
 
     // Check cross-level precedence
-    const pWarnings = checkPrecedence(
-      keys,
-      mode,
-      target,
-      repoName,
-      orgName,
-      envName,
-    );
+    const keysToCheck = mode === "mixed"
+      ? mixedChoices.filter((c) => c.mode !== "skip").map((c) => c.key)
+      : keys;
+    let pWarnings: PrecedenceWarning[] = [];
+    if (mode === "mixed") {
+      const activePicks = mixedChoices.filter((c) => c.mode !== "skip");
+      const modeGroups = new Map<PushMode, string[]>();
+      for (const c of activePicks) {
+        const group = modeGroups.get(c.mode as PushMode) ?? [];
+        group.push(c.key);
+        modeGroups.set(c.mode as PushMode, group);
+      }
+      for (const [pushMode, groupKeys] of modeGroups) {
+        pWarnings.push(
+          ...checkPrecedence(groupKeys, pushMode, target, repoName, orgName, envName),
+        );
+      }
+    } else {
+      pWarnings = checkPrecedence(keysToCheck, mode, target, repoName, orgName, envName);
+    }
     setPrecedenceWarnings(pWarnings);
 
     const hasWarnings = found.length > 0 || pWarnings.length > 0;
@@ -158,7 +240,12 @@ export function Push({
       }
     }
 
-    setEntriesToPush(localEntries);
+    // Filter out keys the user chose not to overwrite
+    const filteredEntries = skippedKeys.size > 0
+      ? localEntries.filter((e) => !skippedKeys.has(e.key))
+      : localEntries;
+
+    setEntriesToPush(filteredEntries);
 
     if (dryRun) {
       // For dry-run, fetch precedence per mode used in mixed
@@ -167,7 +254,7 @@ export function Push({
         allPWarnings = precedenceWarnings;
       } else {
         const modeGroups = new Map<PushMode, string[]>();
-        for (const e of localEntries) {
+        for (const e of filteredEntries) {
           const group = modeGroups.get(e.pushMode) ?? [];
           group.push(e.key);
           modeGroups.set(e.pushMode, group);
@@ -185,14 +272,14 @@ export function Push({
         const existingSame = listExisting(mode, target, orgName, envName, repoName);
         for (const e of existingSame) existingSet.add(e.name);
       } else {
-        const modes = new Set(localEntries.map((e) => e.pushMode));
+        const modes = new Set(filteredEntries.map((e) => e.pushMode));
         for (const m of modes) {
           const existing = listExisting(m, target, orgName, envName, repoName);
           for (const e of existing) existingSet.add(e.name);
         }
       }
 
-      const lines = localEntries.map((e) => {
+      const lines = filteredEntries.map((e) => {
         let maskedValue: string;
         if (e.pushMode === "secret") {
           maskedValue = "********";
@@ -211,15 +298,16 @@ export function Push({
       });
       setDryRunLines(lines);
       setPhase("done");
+      setTimeout(() => exit(), 0);
       return;
     }
 
     // Async push with progress
     async function run() {
       const pushResults: PushResult[] = [];
-      for (let idx = 0; idx < localEntries.length; idx++) {
+      for (let idx = 0; idx < filteredEntries.length; idx++) {
         setPushingIndex(idx);
-        const entry = localEntries[idx]!;
+        const entry = filteredEntries[idx]!;
         const existed = conflicts.some((c) => c.key === entry.key);
         const result = await pushSingleAsync({
           key: entry.key,
@@ -241,6 +329,8 @@ export function Push({
       const failed = pushResults.filter((r) => !r.success).length;
       if (failed > 0) {
         setTimeout(() => exit(new Error(`${failed} key(s) failed to push`)), 0);
+      } else {
+        setTimeout(() => exit(), 0);
       }
     }
     run();
@@ -318,7 +408,7 @@ export function Push({
                     <Text dimColor>
                       {" "}
                       (updated:{" "}
-                      {new Date(c.updatedAt).toLocaleDateString("tr-TR")})
+                      {new Date(c.updatedAt).toLocaleDateString("en-US")})
                     </Text>
                   )}
                   <Text dimColor> — will be overwritten</Text>
@@ -368,15 +458,53 @@ export function Push({
             </Box>
           )}
 
-          <Confirm
-            message={
-              shadowedWarnings.length > 0
-                ? "Some keys will be shadowed. Continue anyway?"
-                : "Continue?"
-            }
-            onConfirm={() => setPhase("pushing")}
-            onCancel={() => exit(new Error("Aborted"))}
-          />
+          {conflicts.length > 0 ? (
+            <Box>
+              <Text> [<Text color="green">a</Text>] Overwrite all · [<Text color="cyan">s</Text>] Select · [<Text color="red">n</Text>] Cancel </Text>
+            </Box>
+          ) : (
+            <Confirm
+              message={
+                shadowedWarnings.length > 0
+                  ? "Some keys will be shadowed. Continue anyway?"
+                  : "Continue?"
+              }
+              onConfirm={() => setPhase("pushing")}
+              onCancel={() => exit(new Error("Aborted"))}
+            />
+          )}
+        </Box>
+      )}
+
+      {/* Pick which conflicts to overwrite */}
+      {phase === "pick-overwrites" && (
+        <Box flexDirection="column">
+          <Text color="yellow" bold>
+            ⚠ Which keys should be overwritten?
+          </Text>
+          {conflicts.map((c, i) => (
+            <Text key={c.key}>
+              {owCursor === i ? " ❯ " : "   "}
+              <Text color={owSelected.has(i) ? "green" : undefined}>
+                {owSelected.has(i) ? "◉" : "○"}
+              </Text>
+              {"  "}
+              <Text bold={owCursor === i}>{c.key.padEnd(30)}</Text>
+              {c.updatedAt && (
+                <Text dimColor>
+                  (updated: {new Date(c.updatedAt).toLocaleDateString("en-US")})
+                </Text>
+              )}
+            </Text>
+          ))}
+          <Box marginTop={1} flexDirection="column">
+            <Text dimColor>
+              ↑↓ navigate · space toggle · a all · enter confirm · q cancel
+            </Text>
+            <Text>
+              <Text color="green">{owSelected.size}</Text> selected — selected will be overwritten, others skipped
+            </Text>
+          </Box>
         </Box>
       )}
 
@@ -384,10 +512,7 @@ export function Push({
       {phase === "confirm" && (
         <Confirm
           message="Push to GitHub? Continue?"
-          onConfirm={() => {
-            if (mode === "mixed") setPhase("mixed-pick");
-            else setPhase("pushing");
-          }}
+          onConfirm={() => setPhase("pushing")}
           onCancel={() => exit(new Error("Aborted"))}
         />
       )}
@@ -398,7 +523,7 @@ export function Push({
           entries={selectedEntries}
           onComplete={(choices) => {
             setMixedChoices(choices);
-            setPhase("pushing");
+            setPhase("checking");
           }}
         />
       )}
@@ -483,6 +608,13 @@ export function Push({
       {/* Push results */}
       {phase === "done" && !dryRun && (
         <Box flexDirection="column">
+          {skippedKeys.size > 0 && (
+            <Box flexDirection="column" marginBottom={1}>
+              {[...skippedKeys].map((k) => (
+                <Text key={k} dimColor> ⏭ {k} — skipped (not overwritten)</Text>
+              ))}
+            </Box>
+          )}
           {results.map((r) => {
             const keyWarnings = precedenceWarnings.filter(
               (w) => w.key === r.key,
@@ -522,12 +654,14 @@ export function Push({
               ⚠ {results.filter((r) => r.success).length} pushed,{" "}
               {results.filter((r) => !r.success).length} failed out of{" "}
               {results.length}
+              {skippedKeys.size > 0 && `, ${skippedKeys.size} skipped`}
             </Text>
           ) : (
             <Text color="green">
               ✓ Done! {results.length} pushed
               {results.filter((r) => r.existed).length > 0 &&
                 ` (${results.filter((r) => r.existed).length} overwritten)`}
+              {skippedKeys.size > 0 && ` · ${skippedKeys.size} skipped`}
             </Text>
           )}
           {shadowedWarnings.length > 0 && (

@@ -180,9 +180,21 @@ Before pushing, ghsecret checks if keys already exist at the target level:
 
 ```
 ⚠ 2 key(s) already exist at this level:
-  • DB_PASSWORD (updated: 15.03.2026)
-  • API_KEY (updated: 01.03.2026)
-Overwrite existing values? [y/N]
+  • DB_PASSWORD (updated: 3/15/2026)
+  • API_KEY (updated: 3/1/2026)
+
+ [a] Overwrite all · [s] Select · [n] Cancel
+```
+
+Press `s` to pick which keys to overwrite individually:
+
+```
+⚠ Which keys should be overwritten?
+ ❯ ◉  DB_PASSWORD   (updated: 3/15/2026)
+   ○  API_KEY        (updated: 3/1/2026)
+
+ ↑↓ navigate · space toggle · a all · enter confirm · q cancel
+ 1 selected — selected will be overwritten, others skipped
 ```
 
 ### Precedence Warnings

@@ -179,10 +179,22 @@ Her key tek tek aktarılır ve anlık geri bildirim verilir:
 Aktarmadan önce ghsecret, hedef seviyede key'lerin mevcut olup olmadığını kontrol eder:
 
 ```
-⚠ 2 key zaten bu seviyede mevcut:
-  • DB_PASSWORD (güncelleme: 15.03.2026)
-  • API_KEY (güncelleme: 01.03.2026)
-Mevcut değerlerin üzerine yazılsın mı? [y/N]
+⚠ 2 key(s) already exist at this level:
+  • DB_PASSWORD (updated: 3/15/2026)
+  • API_KEY (updated: 3/1/2026)
+
+ [a] Overwrite all · [s] Select · [n] Cancel
+```
+
+`s` tuşuna basarak hangi key'lerin üzerine yazılacağını tek tek seçebilirsiniz:
+
+```
+⚠ Which keys should be overwritten?
+ ❯ ◉  DB_PASSWORD   (updated: 3/15/2026)
+   ○  API_KEY        (updated: 3/1/2026)
+
+ ↑↓ navigate · space toggle · a all · enter confirm · q cancel
+ 1 selected — selected will be overwritten, others skipped
 ```
 
 ### Öncelik Uyarıları

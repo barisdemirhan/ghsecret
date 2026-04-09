@@ -20,7 +20,7 @@ For global dev usage: `npm link` → then use `ghsecret` anywhere.
 
 React + Ink terminal UI app with meow for CLI argument parsing.
 
-**Data flow:** `cli.tsx` parses argv into `AppConfig` → `render(<App />)` → App detects remotes: if multiple, shows `<RemotePicker />` first. Then routes to either `<Interactive />` (wizard) or `<Push />` (execution). Push has its own state machine: `checking → show-warnings|confirm|mixed-pick → pushing → done`. The push phase is async with real-time progress (ink-spinner).
+**Data flow:** `cli.tsx` parses argv into `AppConfig` → `render(<App />)` → App detects remotes: if multiple, shows `<RemotePicker />` first. Then routes to either `<Interactive />` (wizard) or `<Push />` (execution). Push has its own state machine: `checking → show-warnings|pick-overwrites|confirm|mixed-pick → pushing → done`. The push phase is async with real-time progress (ink-spinner).
 
 **Two rendering modes:**
 - `Help.tsx` uses `chalk` + `console.log` (runs before Ink, exits immediately)
